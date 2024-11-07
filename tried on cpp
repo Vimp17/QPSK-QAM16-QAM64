@@ -1,0 +1,125 @@
+#include <iostream>
+#include <vector>
+#include <complex>
+#include <map>
+#include <cmath>
+#include <random>
+#include <stdexcept>
+
+// Функция Q для расчета теоретической BER
+double qfunc(double x) {
+    return 0.5 - 0.5 * std::erf(x / std::sqrt(2));
+}
+
+// Базовый класс модуляции
+class Modulator {
+public:
+    virtual std::vector<std::complex<double>> modulate(const std::vector<int>& bits) = 0;
+    virtual std::vector<int> demodulate(const std::vector<std::complex<double>>& symbols) = 0;
+    virtual std::vector<std::complex<double>> add_awgn(const std::vector<std::complex<double>>& symbols, double snr_db, int M) = 0;
+};
+
+// Класс для QPSK модуляции
+class QPSKModulator : public Modulator {
+public:
+    QPSKModulator() {
+        symbol_map = {
+            {{0, 0}, {1, 1}},
+            {{0, 1}, {-1, 1}},
+            {{1, 0}, {1, -1}},
+            {{1, 1}, {-1, -1}}
+        };
+    }
+
+    std::vector<std::complex<double>> modulate(const std::vector<int>& bits) override {
+        if (bits.size() % 2 != 0) throw std::invalid_argument("Количество бит должно быть кратно 2 для QPSK");
+        std::vector<std::complex<double>> symbols;
+        for (size_t i = 0; i < bits.size(); i += 2) {
+            symbols.push_back(symbol_map[{bits[i], bits[i + 1]}]);
+        }
+        return symbols;
+    }
+
+    std::vector<int> demodulate(const std::vector<std::complex<double>>& symbols) override {
+        std::vector<int> bits;
+        for (const auto& symbol : symbols) {
+            auto closest_symbol = std::min_element(symbol_map.begin(), symbol_map.end(),
+                [&symbol](const auto& a, const auto& b) {
+                    return std::abs(a.second - symbol) < std::abs(b.second - symbol);
+                });
+            bits.insert(bits.end(), closest_symbol->first.begin(), closest_symbol->first.end());
+        }
+        return bits;
+    }
+
+    std::vector<std::complex<double>> add_awgn(const std::vector<std::complex<double>>& symbols, double snr_db, int M) override {
+        double snr_linear = std::pow(10.0, snr_db / 10.0);
+        double noise_power = 0.3 / snr_linear;
+        std::vector<std::complex<double>> noisy_symbols;
+        
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::normal_distribution<double> dist(0.0, std::sqrt(noise_power / 2.0));
+
+        for (const auto& symbol : symbols) {
+            noisy_symbols.push_back(symbol + std::complex<double>(dist(gen), dist(gen)));
+        }
+        return noisy_symbols;
+    }
+
+private:
+    std::map<std::vector<int>, std::complex<double>> symbol_map;
+};
+
+// Функция моделирования BER
+std::pair<std::vector<double>, std::vector<double>> simulate_ber(Modulator* modulator, int M, const std::vector<int>& SNR_db_range, int num_trials) {
+    std::vector<double> BER, BER_THEOR;
+    for (double snr_db : SNR_db_range) {
+        int bit_errors_total = 0;
+        int total_bits = 0;
+        double y = std::pow(10.0, snr_db / 10.0);
+
+        for (int trial = 0; trial < num_trials; ++trial) {
+            std::vector<int> bits(M);
+            for (int i = 0; i < M; ++i) {
+                bits[i] = rand() % 2;  // случайные биты
+            }
+
+            std::vector<std::complex<double>> symbols = modulator->modulate(bits);
+            std::vector<std::complex<double>> noisy_symbols = modulator->add_awgn(symbols, snr_db, M);
+            std::vector<int> demodulated_bits = modulator->demodulate(noisy_symbols);
+
+            int bit_errors = 0;
+            for (size_t i = 0; i < bits.size(); ++i) {
+                if (bits[i] != demodulated_bits[i]) bit_errors++;
+            }
+            bit_errors_total += bit_errors;
+            total_bits += bits.size();
+        }
+
+        double ber = static_cast<double>(bit_errors_total) / total_bits;
+        BER.push_back(ber);
+        BER_THEOR.push_back(1 - (1 - 2 * qfunc(std::sqrt(3 * y / (M - 1))) * qfunc(std::sqrt(3 * y / (M - 1)))));
+    }
+    return {BER, BER_THEOR};
+}
+
+int main() {
+    QPSKModulator qpskModulator;
+    std::vector<int> SNR_db_range = {-15, -10, -5, 0, 5};  // пример значений SNR
+    int num_trials = 30000;
+    
+    // Запуск симуляции и вывод результатов
+    //auto [ber_qpsk, ber_theor_qpsk] = simulate_ber(&qpskModulator, 2, SNR_db_range, num_trials);
+    std::pair<std::vector<double>, std::vector<double>> result = simulate_ber(&qpskModulator, 2, SNR_db_range, num_trials);
+    std::vector<double> ber_qpsk = result.first;
+    std::vector<double> ber_theor_qpsk = result.second;
+    
+    std::cout << "QPSK BER:" << std::endl;
+    for (size_t i = 0; i < SNR_db_range.size(); ++i) {
+        std::cout << "SNR: " << SNR_db_range[i] << " dB - Simulation BER: " << ber_qpsk[i] 
+                  << ", Theoretical BER: " << ber_theor_qpsk[i] << std::endl;
+    }
+    
+    return 0;
+}
