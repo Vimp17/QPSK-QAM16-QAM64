@@ -1,0 +1,79 @@
+import math
+import cmath  # Для работы с комплексными числами
+
+
+class FFTTransformer:
+    """
+    Класс для прямого и обратного преобразования Фурье.
+    Работает с длиной данных, кратной 2.
+    """
+
+    def __init__(self):
+        pass
+
+    @staticmethod
+    def is_valid_length(n):
+        """Проверяет, является ли длина преобразования допустимой (кратной 2, 3 или 5)."""
+        if n <= 0:
+            return False
+        original_n = n
+        for factor in [2, 3, 5]:
+            while n % factor == 0:
+                n //= factor
+        return n == 1
+
+    @staticmethod
+    def fft(data):
+        """Выполняет прямое преобразование Фурье."""
+        n = len(data)
+        if not FFTTransformer.is_valid_length(n):
+            raise ValueError(f"Длина данных {n} должна быть кратной 2")
+        return FFTTransformer._fft_recursive(data)
+
+    @staticmethod
+    def ifft(data):
+        """Выполняет обратное преобразование Фурье."""
+        n = len(data)
+        if not FFTTransformer.is_valid_length(n):
+            raise ValueError(f"Длина данных {n} должна быть кратной 2")
+        result = FFTTransformer._fft_recursive([x.conjugate() for x in data])
+        return [x.conjugate() / n for x in result]
+
+    @staticmethod
+    def _fft_recursive(data):
+        """Рекурсивная реализация FFT."""
+        n = len(data)
+        if n == 1:
+            return data
+        if n % 2 != 0:
+            raise ValueError("FFT поддерживает только длины, кратные степени 2.")
+        
+        # Разделяем входные данные на четные и нечетные индексы
+        even = FFTTransformer._fft_recursive(data[0::2])
+        odd = FFTTransformer._fft_recursive(data[1::2])
+        
+        # Рассчитываем преобразование
+        T = [cmath.exp(-2j * math.pi * k / n) * odd[k] for k in range(n // 2)]
+        return [even[k] + T[k] for k in range(n // 2)] + \
+               [even[k] - T[k] for k in range(n // 2)]
+
+
+# Пример использования:
+if __name__ == "__main__":
+    # Пример данных (длина должна быть кратна 2)
+    data = [complex(i, -i) for i in range(16)]  # 
+    
+    transformer = FFTTransformer()
+    
+    print(f'data: {data}')
+    # Прямое преобразование
+    fft_result = transformer.fft(data)
+    print("FFT Result:\n", fft_result)
+    
+    # Обратное преобразование
+    ifft_result = transformer.ifft(fft_result)
+    print("IFFT Result (should match original):\n", ifft_result)
+
+    # Проверка восстановления данных
+    print("Error between original and reconstructed data:",
+          max(abs(data[i] - ifft_result[i]) for i in range(len(data))))
